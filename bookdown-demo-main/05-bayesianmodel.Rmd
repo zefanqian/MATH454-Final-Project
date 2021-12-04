@@ -1,0 +1,48 @@
+# Bayesian Model
+
+## Build Bayesian Model
+
+Denote $Y_i$ the number of new cases in one month, $X_{1}$ number of new cases last month, $X_2$ number of new cases three months ago, $X_3$ number of cases half a year ago, $X_{4i}$ indicating whether in the season $i$,  and $X_{5j}$ indicating whether in the state $j$.
+
+$$
+\begin{aligned}
+Y_{i} \mid \beta_{0}, \beta_{1}, \beta_{2}, \beta_{3}, \beta_{4i}, \beta_{5j}, r & \stackrel{\text { ind }}{\sim} \operatorname{NegBin}\left(\mu_{i}, r\right) \text { with } \log \left(\mu_{i}\right)=\beta_{0}+\beta_{1} X_{1}+\beta_{2} X_{2} + \beta_3X_{3}+\\&\qquad\qquad\qquad\qquad\qquad\qquad\qquad\text{ }\text{ } \beta_{41}X_{41} +\cdots + \beta_{51}X_{51} + \cdots \\
+\beta_{0 c} & \sim N\left(m_0, s_0^2\right) \\
+\beta_{1} & \sim N\left(m_1, s_1^2\right) \\
+&\quad\vdots\\
+r & \sim \operatorname{Exp}(l)
+\end{aligned}
+$$
+
+```{r}
+mod3_posterior <- stan_glm(
+  cases ~ lag1_log + state + lag3_log + lag6_log + season, data = covid19_month,
+  family = neg_binomial_2,
+  prior_PD = FALSE,
+  chains = 4, iter = 5000*2, seed = 84735, refresh = 0)
+```
+
+## Model Summary
+
+```{r}
+summary(mod3_posterior)
+```
+
+## Posterior Inference 
+
+For Alaska in December 2021, whose log of number of new cases in the previous month is 10.475010, three months ago is 11.165621, and half a year ago is 7.949856, we could predict its number of cases from our MCMC simulation.
+
+```{r}
+covid_chains <- as.data.frame(mod3_posterior, include = F)
+covid_chains <- covid_chains %>%
+  mutate(covid_new = rnbinom(20000, mu = exp(`(Intercept)` + 10.475010 * lag1_log + 11.165621 * lag3_log + 7.949856 * lag6_log + stateAlaska + seasonwinter), size = reciprocal_dispersion))
+```
+
+```{r}
+covid_chains %>%
+  summarize(quantile(covid_new, 0.025, na.rm = TRUE),quantile(covid_new, 0.975, na.rm = TRUE))
+```
+
+The 95% credible interval is (348, 22746.37). Since this credible interval doesn't include 0, we believe this is a fairly good simulation result. Thus, we would like to move on with this model, and predict the situation in 2022. This will be our further work after we submit our checkpoint 4.
+
+

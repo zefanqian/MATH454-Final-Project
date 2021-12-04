@@ -1,0 +1,4 @@
+`r if (knitr:::is_html_output()) '
+# References {-}
+'`
+1. New York Time. (n.d.). Retrieved December 3, 2021, from https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv. 
