@@ -1,0 +1,131 @@
+# Data Cleaning
+
+```{r message=FALSE, warning=FALSE}
+#load packages
+library(bayesrules)
+library(tidyverse)
+library(janitor)
+library(rstanarm)
+library(bayesplot)
+library(tidybayes)
+library(broom.mixed)
+library(modelr)
+library(e1071)
+library(forcats)
+library(ggExtra)
+library(ggpubr)
+library(ggridges)
+library(devtools)
+library(zoo)
+library(DT)
+library(dplyr)
+library(plyr)
+Sys.setlocale("LC_TIME", "English")
+```
+## Load Data
+
+```{r message=FALSE, warning=FALSE}
+#load data
+covid19 <- read_csv(url("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv"))
+```
+
+## Generate Monthly Incident Data
+
+Here, we generate the daily incident data by subtracting the lagging of yesterday from the cumulative number of COVID-19 cases at present. By summing all daily incident data within one month, we generate the monthly incident data.
+
+```{r}
+covid19_filter <- covid19 %>%
+  dplyr::group_by(state) %>%
+  dplyr::mutate(lag1 = lag(cases, n = 1)) 
+
+covid19_filter <- covid19_filter %>%
+  mutate(lag1 = lag1 %>% 
+           replace_na(0))
+
+covid19_filter <- covid19_filter %>% mutate(case_new = cases - lag1) 
+```
+
+## Generate Time Variables
+
+```{r message=FALSE, warning=FALSE}
+covid19_month <- covid19_filter %>%
+  dplyr::mutate(year = lubridate::year(date), 
+                month = lubridate::month(date), 
+                day = lubridate::day(date)) %>%
+  dplyr::group_by(state, year, month) %>%
+  dplyr::summarize(cases = sum(case_new)) 
+
+covid19_month <- covid19_month %>%
+  mutate(Date = as.yearmon(paste(covid19_month$year, covid19_month$month), "%Y %m"))
+```
+
+## Remove Incomplete Monthly Data
+
+Since before the time we submit this project, we do not have complete data for December, 2021, we decide to remove the incomplete data from our dataset.
+
+```{r}
+covid19_month <- covid19_month %>%
+  filter(!(year == 2021 & month == 12)) 
+```
+
+## Generate Daily Average Number of Cases within One Month
+
+We take the daily average of the number of COVID-19 cases that appear within one month because different months have different days. We would like to minimize the impacts from this difference.
+
+```{r}
+covid19_month <- covid19_month %>%
+  mutate(cases_daily = round(ifelse(month == 1 | month == 3 | month == 5 | month == 7 | month == 8 | month == 10 | month == 12, cases / 31, ifelse(month == 4 | month == 6 | month == 9 | month == 11, cases/ 30, ifelse(month == 2 & year == 2020, cases / 29, cases /28)))))
+```
+
+## Generate Lag in Time-Series
+
+```{r}
+covid19_month <- covid19_month %>%
+  dplyr::group_by(state) %>%
+  mutate(lag1 = lag(cases_daily, n = 1)) %>%
+  mutate(lag3 = lag(cases_daily, n = 3)) %>%
+  mutate(lag6 = lag(cases_daily, n = 6)) 
+
+covid19_month <- covid19_month %>% 
+  mutate(lag1 = lag1 %>% replace_na(0)) %>%
+  mutate(lag3 = lag3 %>% replace_na(0)) %>%
+  mutate(lag6 = lag6 %>% replace_na(0))
+```
+
+## Clean undefined values (0) in Logarithmic function
+
+Since log(0) is undefined, we remove 0 from our dataset by adding one to the lagging variables.
+
+```{r}
+covid19_month <- covid19_month %>%
+  mutate(lag1 = lag1 + 1) %>%
+  mutate(lag3 = lag3 + 1) %>%
+  mutate(lag6 = lag6 + 1)
+
+covid19_month <- covid19_month %>%
+  mutate(lag1_log = log(lag1)) %>%
+  mutate(lag3_log = log(lag3)) %>%
+  mutate(lag6_log = log(lag6))
+```
+
+## Generate Season Variable
+
+```{r}
+covid19_month <- covid19_month %>%
+  mutate(season = ifelse(month >= 3 & month <= 5 , "spring", ifelse(month >= 6 & month <= 8, "summer", ifelse(month >= 9 & month <= 11, "fall", "winter"))))
+```
+
+## Generate Indicator Variable for Vaccination
+
+```{r}
+covid19_month <- covid19_month %>%
+  mutate(vaccine = ifelse(year == 2021 & month >= 3, 1, 0))
+```
+
+
+## Generate Indicator Variable for Appearance of Delta Variant
+
+```{r}
+covid19_month <- covid19_month %>%
+  mutate(variant = ifelse(year == 2021 & month >= 6, 1, 0))
+```

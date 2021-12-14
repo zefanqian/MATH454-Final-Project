@@ -1,0 +1,127 @@
+# Visualizations
+
+In this chapter, we make visualizations to dig into what is our prior model and what factors can be used in our regression.
+
+## General Trend in Monthly Increases
+
+First, let's see what the distribution of monthly case increases look like. The first three visualizations we have here are density plots that count the frequencies of monthly case increases, not relating to time or state. If we look at the United States as a whole, we see that the most frequent number of new cases in one month for the whole country is around 100,000.
+
+```{r}
+covid19_month %>%
+  ggplot(aes(x = cases)) +
+  geom_density() +
+  labs(x = "Number of new cases in one month", y = "Count", title = "Distribution of number of new cases of US in one month") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+We can also look at individual state's distribution. The state of Minnesota and the state of California have similar distributions, but Minnesota has significantly fewer cases, probably due to less population.
+
+```{r}
+covid19_month %>%
+  filter(state == "Minnesota") %>%
+  ggplot(aes(x = cases)) +
+  geom_density() + 
+  labs(x = "Number of new cases in one month", y = "Count", title = "Distribution of number of new cases of MN in one month") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+covid19_month %>%
+  filter(state == "California") %>%
+  ggplot(aes(x = cases)) +
+  geom_density() +
+  labs(x = "Number of new cases in one month", y = "Count", title = "Distribution of number of new cases of CA in one month") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+To relate these observations with our model choice, we will extend in the next Chapter.
+
+
+## Time and State
+
+We are also able to show how the number of new cases for each month varies from state to state and time to time:
+
+**For United States as the whole**
+
+```{r}
+covid19_month %>% 
+  dplyr::group_by(Date) %>%
+  dplyr::summarize(cases = sum(cases)) %>%
+  ggplot(aes(x = Date, y = cases)) +
+  geom_line() + 
+  geom_vline(xintercept = 2021.167, color = "steelblue") +
+  geom_vline(xintercept = 2021.450, color = "#4f7c6e") +
+  labs(x = "Date", y = "Number of new cases in each month", title = "Number of new cases of US in one month changes over time") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+There are certain things that people are doing to prevent the virus including vaccines. Vaccines from Pfizer, Moderna, and Johnson & Johnson, are being widely used starting March 2021, which is labeled as the line on the left in the graph. Some time later, we see a significant drop of monthly COVID-19 increases. However, the virus itself is quickly adapting as well. Around July, a variant called the Delta started to spread all over the world, more transmissible and less susceptible to existing vaccines, as indicated as the line on the right in the graph. As a result, the monthly case increases started to rise again. Because of how drastic the vaccines and virus variants can impact COVID infections, we would like to include these two as independent variables in our model. Specifically, they can only take on the value of 0 and 1. So it either has a vaccine or not, and has a variant or not.
+
+**For individual states**
+
+```{r}
+covid19_month %>%
+  ggplot(aes(x = Date, y = cases, color = state)) +
+  geom_line() + 
+  labs(x = "Date", y = "Number of new cases in each month", title = "Number of new cases of states in one month changes over time") +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
+```
+
+**For several states in details**
+
+We filter out the states with the most increases: California, Florida, New York and Texas.
+
+```{r}
+covid19_month %>%
+  filter(state == "California" || state == "Florida" || state == "New York" || state == "Texas") %>%
+  ggplot(aes(x = Date, y = cases, color = state)) +
+  geom_line() +
+  labs(x = "Date", y = "Number of new cases in each month", color = "State", title = "Number of new cases of CA, FL, NY, TX in one month changes over time") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+From the graph, we see that the distribution of the number of new cases in each month is not linear, but multi-model. However, we do observe a pattern if we categorize time by season, and we decide to explore that. Also, from the next chart, monthly increases also fluctuate with state: we see that some states have significantly more increases than other states but different states have similar patterns. Thus, we don't plan to use interaction or hierarchical models in our next Chapter.
+
+## Lagging Variables
+
+The three plots below are time lag plots. A lag is a fixed time displacement. In our case, we have a time displacement of 1, 3, and 6 months. The plots all exhibit a linear pattern. This shows that the data are strongly non-random and means that we are able to use a time series analysis to model the data and generate forecasts. More specifically, for a lagging of 1 month, there is a strong positive linear relationship from one month to the next, meaning this month's cases are strongly positively related to last month's cases. And this relationship becomes a little weaker but still positive for a lagging of 3 month and even weaker for a lagging of 6 months. This makes sense because this month's cases are more related to last month's compared to half a year ago. Thus, in our final model, we also take these three lagging variables into consideration.
+
+```{r}
+covid19_month %>%
+  ggplot(aes(x = log(cases), y = log(lag1))) +
+  geom_point() +
+  labs(x = "log(number of cases in one month)", y = "log(number of cases in the last month)", title = "How the number of cases in one month changes with that in the last month") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+covid19_month %>%
+  ggplot(aes(x = log(cases), y = log(lag3))) +
+  geom_point()+
+  labs(x = "log(number of cases in one month)", y = "log(number of cases three months ago)", title = "How the number of cases in one month changes with that three months ago") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+covid19_month %>%
+  ggplot(aes(x = log(cases), y = log(lag6))) +
+  geom_point()+
+  labs(x = "log(number of cases in one month)", y = "log(number of cases half a year ago)", title = "How the number of cases in one month changes with that half a year ago") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Monthly Increases With Season
+
+Based on our observations in the previous two subsections, it's reasonable to put season into consideration. We plot new cases with season: winter has the most case increase while spring has the least.
+
+```{r}
+covid19_month %>%
+  dplyr::group_by(season) %>%
+  dplyr::summarize(cases_mean = mean(cases)) %>%
+  ggplot() +
+  geom_bar(mapping = aes(x = season, y = cases_mean), stat = "identity") +
+  labs(x = "Season", y = "Mean of number of new cases in each month", title = "Number of new cases of US in one month changes over seasons") +
+  theme(plot.title = element_text(hjust = 0.5))
+``` 
+
+Thus, besides state, we pick season as another independent variable in our model.

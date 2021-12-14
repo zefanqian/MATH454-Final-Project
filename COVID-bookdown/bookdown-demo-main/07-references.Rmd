@@ -1,0 +1,10 @@
+`r if (knitr:::is_html_output()) '
+# References {-}
+'`
+1. New York Time. (n.d.). Retrieved December 3, 2021, from https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv. 
+
+2. Olisah, C. C., Ilori, O. O., Adelaja, K., Usip, P. U., Uzoechi, L. O., Adeyanju, I. A., &amp; Odumuyiwa, V. T. (2021). Data-driven approach to COVID-19 infection forecast for Nigeria using negative binomial regression model. Data Science for COVID-19, 583–596. https://doi.org/10.1016/b978-0-12-824536-1.00002-2 
+
+3. "News of the world". The Economist. March 17, 2012. ISSN 0013-0613. Retrieved December 6, 2021.
+
+4. Zimmer , C., & Jacobs, A. (2021, December 13). Omicron: What We Know About the New Coronavirus Variant. Retrieved December 4, 2021, from https://www.nytimes.com/article/omicron-coronavirus-variant.html.

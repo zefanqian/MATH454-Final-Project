@@ -1,0 +1,18 @@
+# Data
+
+## Data Source
+
+Our data was collected from the New York Times, which is an American daily newspaper based in New York City with a worldwide readership. The data is held on New York Times COVID-19 Github repository. This data includes cumulative cases and deaths reported in each state across the U.S., including U.S. territories and the District of Columbia, since the beginning of the pandemic beginning in Jan 21, 2021. The data is still updating, so we ignore Dec 2021 data and use all the data until Nov 30, 2021.
+
+Website for our data source: https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv
+
+## Data Dictionary
+
+Variable Name            | Description
+-------------------------| -------------
+date                     | Date
+state                    | Name of State
+fips                     | First Two Digits of ZipCode of the State
+cases                    | Number of Cumulative Cases
+deaths                   | Number of Cumulative Deaths
+

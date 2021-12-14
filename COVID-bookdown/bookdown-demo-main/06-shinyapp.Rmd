@@ -1,0 +1,23 @@
+# Further Work
+
+## Shiny App
+
+Because of the difficulty of embedding a Shiny App in the bookdown, we instead include links of our Shiny App here.
+Before you head over to try out the Shiny App for yourself, what is the purpose of this tool? After taking in your inputs in each of the sections, you will be able to see how the Covid-19 cases distributions look like for the past two years and how they will be like in the future. Some of the selections you have are state, year, and month.
+ 
+For Covid-19 distributions are interested in before December, 2021:
+https://zqian.shinyapps.io/covid_vis_shinyapp_raymond_zefan/
+
+For future Covid-19 distributions you are interested in:
+https://zqian.shinyapps.io/covid_prediction_shinyapp/
+
+## Future Work
+
+1. We assumed lagging variables have the same effects on all the states, which should not be perfectly true in the real world. A hierarchical model might help here and more work is needed.
+
+2. For now, we do not have enough data to split the effect of vaccines and virus variants. As long as we get enough data, or we come up with a smart way to do so, we can build a greater model to not only predict the future in general, but to provide a deeper quantitative understanding in vaccines and variants.
+
+3. With the appearance of the Omicron variant, our model, obviously, cannot capture the entire picture of what is coming. It might be possible to make a comparison between Delta variant and Omicron variant so that a more accurate prediction can be made. More research is needed for this.
+
+
+

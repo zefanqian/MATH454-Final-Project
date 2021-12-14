@@ -1,0 +1,397 @@
+# Bayesian Model
+
+In this chapter, in order to have a deep quantitative understanding in how variables we explored contribute to COVID-19 and predict how it might continue to change in the future, we construct the Bayesian models for our further exploration.
+
+## Model 1
+
+### Build Bayesian Model
+
+Based on what we observed in visualization, the population distribution is observed to be skewed and to approximate the Poisson distribution. However, the respective means of the outcome data show to greatly deviate from the variance. In statistics, this is termed overdispersion. By definition, overdispersion can be described as when data variance is greater than its statistical mean. This characteristic of the data violates fitting the data to the Poisson regression model, a commonly used model for fitting epidemiological count data. Therefore, we assume a Negative Binomial regression model for fitting the count data. Here is a paper that also uses Negative Binomial model to forecast COVID-19 infections: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8137713/
+
+With the Negative Binomial regression model, we consider the goal of predicting the outcome variable $y$, which is the daily average of the number of infected cases within one month and a set of predictor variables $x_{1},x_{2},\dots,x_{k}$. Thus, the model is formulated as:
+
+$$
+P\left(\mu, \alpha\right)=\frac{\Gamma\left(y+\alpha^{-1}\right)}{\Gamma\left(\alpha^{-1}\right) \Gamma\left(y+1\right)}\left(\frac{1}{1+\alpha \mu}\right)^{\alpha^{-1}}\left(\frac{\alpha \mu}{1+\alpha \mu}\right)^{y}
+$$
+
+Denote $Y$ the daily average of the number of infected cases within one month, $X_{1}$ the daily average of the number of infected cases last month, $X_2$ the daily average of the number of infected cases three months ago, $X_3$ the daily average of the number of infected cases half a year ago, $X_{4,i}$ indicating whether in the season $i$,  and $X_{5,j}$ indicating whether in the state $j$. Here, based on our explanation in the previous chapter, we assume that all the independent variables are independent, i.e. the lagging variables and season variables shape the number of cases in the same way for all the states. Thus, we can further formulate our model as:
+
+$$
+\begin{aligned}
+Y \mid \beta_{0}, \beta_{1}, \beta_{2}, \beta_{3}, \beta_{4,i}, \beta_{5,j}, \alpha & \stackrel{\text { ind }}{\sim} \operatorname{NegBin}\left(\mu, \alpha\right) \text { with } \log \left(\mu\right)=\beta_{0}+\beta_{1} X_{1}+\beta_{2} X_{2} + \beta_3X_{3}+\\&\qquad\qquad\qquad\qquad\qquad\qquad\qquad\text{ } \beta_{4,1}X_{4,1} +\cdots + \beta_{5,1}X_{5,1} + \cdots \\
+\beta_{0 c} & \sim N\left(m_0, s_0^2\right) \\
+\beta_{1} & \sim N\left(m_1, s_1^2\right) \\
+&\quad\vdots\\
+\alpha & \sim \operatorname{Exp}(l)
+\end{aligned}
+$$
+
+```{r, eval = FALSE}
+mod1_posterior <- stan_glm(
+  cases_daily ~ lag1_log + state + lag3_log + lag6_log + season, data = covid19_month,
+  family = neg_binomial_2,
+  prior_PD = FALSE,
+  chains = 4, iter = 5000*2, seed = 84735, refresh = 0)
+```
+
+```{r, echo = FALSE}
+mod1_posterior <- readRDS("mod1_posterior.RDS")
+```
+
+### Model Summary
+
+The table below summarizes 20,000 simulation results of our model. Specifically, we can observe that lagging variables, in general, have a positive impact on the number of cases, mostly from lagging one month from the present. Also, the number of cases vary from state to state a lot. American Samoa, for example, has 45 cases per day fewer than that in Alabama holding lagging variables and season variables the same. Besides, season is also a big determinant to shape COVID-19. Winter and fall overall have a larger number of daily average increases in COVID-19 cases than spring and summer.
+
+```{r}
+summary(mod1_posterior)
+```
+
+### MCMC Diagnostics
+
+Since there are too many states in our dataset, for simplicity, we only make MCMC diagnostics for the other variables and all of them look good.
+
+```{r}
+# Trace plots
+mcmc_trace(mod1_posterior, pars = vars("lag1_log", "lag3_log", "lag6_log", "seasonspring", "seasonsummer", "seasonwinter")) 
+
+# Overlaid density plots
+mcmc_dens_overlay(mod1_posterior, pars = vars("lag1_log", "lag3_log", "lag6_log", "seasonspring", "seasonsummer", "seasonwinter")) 
+```
+
+### Posterior Evaluation
+
+Then, we make the posterior predictive check and our model is obviously not wrong. 
+
+```{r}
+pp_check(mod1_posterior) + 
+    xlab("Daily Average Number of COVID-19 Cases within One Month")
+```
+
+Then, we test whether our model can make accurate posterior predictions with an example in Alaska.
+
+```{r message=FALSE, warning=FALSE}
+covid_case <- function(State, Year, Month){
+  return(log((covid19_month %>% filter(state == State & year == Year & month == Month))$cases_daily + 1))
+}
+
+covid_chains <- as.data.frame(mod1_posterior, include = F)
+
+covid_chains <- covid_chains %>%
+  mutate(covid_Dec_2021 = rnbinom(20000, mu = exp(`(Intercept)` + covid_case("Alaska", 2021, 11) * lag1_log + covid_case("Alaska", 2021, 9) * lag3_log + covid_case("Alaska", 2021, 6) * lag6_log + stateAlaska + seasonwinter), size = reciprocal_dispersion)) %>%
+  filter(!is.na(covid_Dec_2021)) 
+
+covid_chains %>%
+  summarize(quantile(covid_Dec_2021, 0.5, na.rm = TRUE))
+
+covid19_month_test <- covid19_filter %>%
+  dplyr::mutate(year = lubridate::year(date), 
+                month = lubridate::month(date), 
+                day = lubridate::day(date)) %>%
+  dplyr::group_by(state, year, month) %>%
+  dplyr::summarize(cases = sum(case_new)) 
+
+covid19_month_test %>% 
+  filter(state == "Alaska", year == 2021, month == 12) %>%
+  summarise(cases_daily = cases / 11)
+```
+
+Here, we used our model to predict the average daily increase in COVID19 in Alaska in December, 2021 and observe that its posterior median is close to the daily average increase between December 1, 2021 to December 11, 2021. Thus, we can tell that our model can accurately predict the real life situation, at least in Alaska, with our example here. 
+
+### Posterior Prediction 1: December 2021
+
+For Alaska in December 2021, we could predict its number of cases from our MCMC simulation shown previously. This will give us a distribution and we can check the 95% credible interval.
+
+```{r}
+covid_chains %>%
+  summarize(quantile(covid_Dec_2021, 0.025, na.rm = TRUE), quantile(covid_Dec_2021, 0.975, na.rm = TRUE))
+```
+
+Since this credible interval doesn't include 0, we believe this is a fairly good simulation result. Thus, we would like to move on with this model, and predict the situation in 2022. 
+
+### Posterior Prediction 2: 2022
+
+Here, we further predict the situation in 2022 by predicting it month by month with our Bayesian model. We visualize our prediction results with a line chart and it reveals that in Alaska, the growth of COVID-19 will be slower in the near future, and gets quicker and quicker in the long run.
+
+```{r message=FALSE, warning=FALSE}
+covid_chains_1 <- covid_chains %>%
+  mutate(covid_Jan_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Dec_2021) * lag1_log + covid_case("Alaska", 2021, 10) * lag3_log + covid_case("Alaska", 2021, 7) * lag6_log + stateAlaska + seasonwinter), size = reciprocal_dispersion)) %>%
+  mutate(covid_Feb_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Jan_2022) * lag1_log + covid_case("Alaska", 2021, 11) * lag3_log + covid_case("Alaska", 2021, 8) * lag6_log + stateAlaska + seasonwinter), size = reciprocal_dispersion)) %>%
+  mutate(covid_Mar_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Feb_2022) * lag1_log + log(covid_Dec_2021) * lag3_log + covid_case("Alaska", 2021, 9) * lag6_log + stateAlaska + seasonspring), size = reciprocal_dispersion)) %>%
+  mutate(covid_Apr_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Mar_2022) * lag1_log + log(covid_Jan_2022) * lag3_log + covid_case("Alaska", 2021, 10) * lag6_log + stateAlaska + seasonspring), size = reciprocal_dispersion)) %>%
+  mutate(covid_May_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Apr_2022) * lag1_log + log(covid_Feb_2022) * lag3_log + log(covid_Dec_2021) * lag6_log + stateAlaska + seasonspring), size = reciprocal_dispersion)) %>%
+  mutate(covid_Jun_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_May_2022) * lag1_log + log(covid_Mar_2022) * lag3_log + log(covid_Jan_2022) * lag6_log + stateAlaska + seasonsummer), size = reciprocal_dispersion)) %>%
+  mutate(covid_Jul_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Jun_2022) * lag1_log + log(covid_Apr_2022) * lag3_log + log(covid_Feb_2022) * lag6_log + stateAlaska + seasonsummer), size = reciprocal_dispersion))  %>%
+  mutate(covid_Aug_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Jul_2022) * lag1_log + log(covid_May_2022) * lag3_log + log(covid_Mar_2022) * lag6_log + stateAlaska + seasonsummer), size = reciprocal_dispersion))  %>%
+  mutate(covid_Sep_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Aug_2022) * lag1_log + log(covid_Jun_2022) * lag3_log + log(covid_Apr_2022) * lag6_log + stateAlaska), size = reciprocal_dispersion)) %>%
+  mutate(covid_Oct_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Sep_2022) * lag1_log + log(covid_Jul_2022) * lag3_log + log(covid_May_2022) * lag6_log + stateAlaska), size = reciprocal_dispersion))  %>%
+  mutate(covid_Nov_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Oct_2022) * lag1_log + log(covid_Aug_2022) * lag3_log + log(covid_Jun_2022) * lag6_log + stateAlaska), size = reciprocal_dispersion))  %>%
+  mutate(covid_Dec_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Nov_2022) * lag1_log + log(covid_Sep_2022) * lag3_log + log(covid_Jul_2022) * lag6_log + stateAlaska + seasonwinter), size = reciprocal_dispersion)) %>%
+  mutate(X = 1:20000) %>%
+  filter(!is.na(covid_Dec_2022))
+```
+
+```{r}
+covid_prediction <- covid_chains_1 %>%
+  select(X, covid_Dec_2021, covid_Jan_2022, covid_Feb_2022, covid_Mar_2022, covid_Apr_2022, covid_May_2022, covid_Jun_2022, covid_Jul_2022, covid_Aug_2022, covid_Sep_2022, covid_Oct_2022, covid_Nov_2022, covid_Dec_2022)
+```
+
+```{r}
+test_pivot <- covid_prediction %>%
+  pivot_longer(c(covid_Dec_2021, covid_Jan_2022, covid_Feb_2022, covid_Mar_2022, covid_Apr_2022, covid_May_2022, covid_Jun_2022, covid_Jul_2022, covid_Aug_2022, covid_Sep_2022, covid_Oct_2022, covid_Nov_2022, covid_Dec_2022), names_to = "date", values_to = "prediction_cases_daily")
+
+test_pivot <- test_pivot %>%
+  mutate(year = ifelse(date == "covid_Dec_2021", 2021, 2022)) %>%
+  mutate(month = ifelse(date == "covid_Dec_2021" | date == "covid_Dec_2022", 12, ifelse(date == "covid_Jan_2022", 1, ifelse(date == "covid_Feb_2022", 2, ifelse(date == "covid_Mar_2022", 3, ifelse(date == "covid_Apr_2022", 4, ifelse(date == "covid_May_2022", 5, ifelse(date == "covid_Jun_2022", 6, ifelse(date == "covid_Jul_2022", 7, ifelse(date == "covid_Aug_2022", 8, ifelse(date == "covid_Sep_2022", 9, ifelse(date == "covid_Oct_2022", 10, 11))))))))))))
+  
+test_pivot$Date <- as.yearmon(paste(test_pivot$year, test_pivot$month), "%Y %m")
+
+test_pivot <- test_pivot %>%
+  mutate(base = (covid19_month %>% 
+          filter(state == "Alaska") %>%
+          filter(year == 2021 & month == 11))$cases_daily)
+
+test_pivot2 <- test_pivot %>% 
+  filter(year == 2021 & month == 12 & X < 100) %>%
+  select(X, Date, prediction_cases_daily, base) %>%
+  pivot_longer(c(prediction_cases_daily, base), names_to = "date", values_to = "case") %>%
+  mutate(Date = ifelse(case == 434, (covid19_month %>% 
+          filter(state == "Alaska") %>%
+          filter(year == 2021 & month == 11))$Date, Date))
+
+ggplot() +
+  geom_line(data = test_pivot2, aes(x = Date, y = case, group = X), alpha = 0.2) +
+  geom_line(data = test_pivot %>% filter(X < 100), aes(x = Date, y = prediction_cases_daily, group = X), alpha = 0.2) +
+  geom_line(data = covid19_month %>% 
+          filter(state == "Alaska"), aes(x = Date, y = cases_daily))
+```
+
+## Model 2 
+
+Now, recalling what we discussed in our visualizations, we further consider vaccines in our prediction, and denote it as $X_6$.
+
+$$
+\begin{aligned}
+Y \mid \beta_{0}, \beta_{1}, \beta_{2}, \beta_{3}, \beta_{4,i}, \beta_{5,j},\beta_6, \alpha & \stackrel{\text { ind }}{\sim} \operatorname{NegBin}\left(\mu, \alpha\right) \text { with } \log \left(\mu\right)=\beta_{0}+\beta_{1} X_{1}+\beta_{2} X_{2} + \beta_3X_{3}+\\&\qquad\qquad\qquad\qquad\qquad\qquad\qquad\text{ } \beta_{4,1}X_{4,1} +\cdots + \beta_{5,1}X_{5,1} + \cdots\\&\qquad\qquad\qquad\qquad\qquad\qquad\qquad\text{} +\beta_6X_6\\
+\beta_{0 c} & \sim N\left(m_0, s_0^2\right) \\
+\beta_{1} & \sim N\left(m_1, s_1^2\right) \\
+&\quad\vdots\\
+\alpha & \sim \operatorname{Exp}(l)
+\end{aligned}
+$$
+
+```{r, eval = FALSE}
+mod2_posterior <- stan_glm(
+  cases_daily ~ lag1_log + state + lag3_log + lag6_log + season + vaccine, data = covid19_month,
+  family = neg_binomial_2,
+  prior_PD = FALSE,
+  chains = 4, iter = 5000*2, seed = 84735, refresh = 0)
+```
+
+```{r, echo = FALSE}
+mod2_posterior <- readRDS("mod2_posterior.RDS")
+```
+
+### Model Summary
+
+Here, surprisingly, keeping all the observations we have in model 1 the same, we observe that the appearance of the vaccine increases the number of daily average increases. We believe this happens because we analyze the effect of vaccines by looking at the date when people start to get vaccinated. However, first, it takes time for the vaccine to make a difference. Second, the appearance of the Delta variant is not considered in this model. Thus, we would like to further explore this in our next model. 
+
+```{r}
+summary(mod2_posterior)
+```
+
+### MCMC Diagnostics
+
+For simplicity reasons again, we only make MCMC diagnostics for all the variables other than states and all of them look good.
+
+```{r}
+# Trace plots
+mcmc_trace(mod2_posterior, pars = vars("lag1_log", "lag3_log", "lag6_log", "seasonspring", "seasonsummer", "seasonwinter", "vaccine")) 
+
+# Overlaid density plots
+mcmc_dens_overlay(mod2_posterior, pars = vars("lag1_log", "lag3_log", "lag6_log", "seasonspring", "seasonsummer", "seasonwinter", "vaccine")) 
+```
+
+### Posterior Evaluation
+
+Then, we make the posterior predictive check and our model is obviously not wrong. 
+
+```{r}
+pp_check(mod2_posterior) + 
+    xlab("Daily Average Number of COVID-19 Cases within One Month")
+```
+
+Then, we test whether our model can make accurate posterior predictions with an example in Alaska.
+
+```{r message=FALSE, warning=FALSE}
+covid_chains_2 <- as.data.frame(mod2_posterior, include = F)
+
+covid_chains_2 <- covid_chains_2 %>%
+  mutate(covid_Dec_2021 = rnbinom(20000, mu = exp(`(Intercept)` + covid_case("Alaska", 2021, 11) * lag1_log + covid_case("Alaska", 2021, 9) * lag3_log + covid_case("Alaska", 2021, 6) * lag6_log + stateAlaska + seasonwinter + vaccine), size = reciprocal_dispersion)) %>%
+  filter(!is.na(covid_Dec_2021)) 
+
+covid_chains_2 %>%
+  summarize(quantile(covid_Dec_2021, 0.5, na.rm = TRUE))
+
+covid19_month_test <- covid19_filter %>%
+  dplyr::mutate(year = lubridate::year(date), 
+                month = lubridate::month(date), 
+                day = lubridate::day(date)) %>%
+  dplyr::group_by(state, year, month) %>%
+  dplyr::summarize(cases = sum(case_new)) 
+
+covid19_month_test %>% 
+  filter(state == "Alaska", year == 2021, month == 12) %>%
+  summarise(cases_daily = cases / 11)
+```
+
+Here, in a similar way, we compare our posterior prediction to the real life daily average increase between December 1, 2021 to December 11, 2021. This creates a greater gap between the theoretical prediction and the real life value, and due to the reasons we discussed in the model summary, we stop continuing on this model at this time.
+
+## Model 3
+
+To further explore our model, we include the appearance of the Delta variant into considerations and denote it as $X_7$. Now, we can reconstruct our model as 
+
+$$
+\begin{aligned}
+Y \mid \beta_{0}, \beta_{1}, \beta_{2}, \beta_{3}, \beta_{4,i}, \beta_{5,j},\beta_6, \beta_7, \alpha & \stackrel{\text { ind }}{\sim} \operatorname{NegBin}\left(\mu, \alpha\right) \text { with } \log \left(\mu\right)=\beta_{0}+\beta_{1} X_{1}+\beta_{2} X_{2} +\\ &\qquad\qquad\qquad\qquad\qquad\qquad\qquad\text{ }\beta_3X_{3}+\beta_{4,1}X_{4,1} +  \cdots + \\&\qquad\qquad\qquad\qquad\qquad\qquad\qquad\text{ }\beta_{5,1}X_{5,1} + \cdots +\beta_6X_6 + \beta_7X_7\\
+\beta_{0 c} & \sim N\left(m_0, s_0^2\right) \\
+\beta_{1} & \sim N\left(m_1, s_1^2\right) \\
+&\quad\vdots\\
+\alpha & \sim \operatorname{Exp}(l)
+\end{aligned}
+$$
+
+```{r, eval = FALSE}
+mod3_posterior <- stan_glm(
+  cases_daily ~ lag1_log + state + lag3_log + lag6_log + season + vaccine + variant, data = covid19_month,
+  family = neg_binomial_2,
+  prior_PD = FALSE,
+  chains = 4, iter = 5000*2, seed = 84735, refresh = 0)
+```
+
+```{r, echo = FALSE}
+mod3_posterior <- readRDS("mod3_posterior.RDS")
+```
+
+### Model Summary
+
+Unfortunately, this model still gives us something opposite to our intuitions. The model summary shows that the appearance of vaccines will increase the number of daily average increases and the appearance of variants will decrease the number of daily average increases. We believe this happens because first, still, it takes time for the vaccine and variant to make a difference. Second, there is only a short three-month gap between the appearance of vaccines and the appearance of variants. This is, in some ways, the time needed for the vaccine to be provided to enough people, so that we believe we need a smarter way to split the effects created by the vaccine and variant out. However, since the Delta variant has just appeared for several months until the submission of this project, we can hardly split them out for now, and we will definitely dig into this if we get a chance in the future. Nonetheless, we will continue on this model, because while vaccine and variant variables intertwine with each other, they two, as the whole, can still measure how they shape COVID-19 with some statistical sense.
+
+```{r}
+summary(mod3_posterior)
+```
+
+### MCMC Diagnostics
+
+For simplicity reasons again, we only make MCMC diagnostics for all the variables other than states and all of them look good.
+
+```{r}
+# Trace plots
+mcmc_trace(mod3_posterior, pars = vars("lag1_log", "lag3_log", "lag6_log", "seasonspring", "seasonsummer", "seasonwinter", "vaccine", "variant"))
+
+# Overlaid density plots
+mcmc_dens_overlay(mod3_posterior, pars = vars("lag1_log", "lag3_log", "lag6_log", "seasonspring", "seasonsummer", "seasonwinter", "vaccine", "variant")) 
+```
+
+### Posterior Evaluation
+
+Then, we make the posterior predictive check and our model is obviously not wrong. 
+
+```{r}
+pp_check(mod3_posterior) + 
+    xlab("Daily Average Number of COVID-19 Cases within One Month")
+```
+
+Then, we test whether our model can make accurate posterior predictions with an example in Alaska.
+
+```{r message=FALSE, warning=FALSE}
+covid_chains_3 <- as.data.frame(mod3_posterior, include = F)
+
+covid_chains_3 <- covid_chains_3 %>%
+  mutate(covid_Dec_2021 = rnbinom(20000, mu = exp(`(Intercept)` + covid_case("Alaska", 2021, 11) * lag1_log + covid_case("Alaska", 2021, 9) * lag3_log + covid_case("Alaska", 2021, 6) * lag6_log + stateAlaska + seasonwinter + vaccine + variant), size = reciprocal_dispersion)) %>%
+  filter(!is.na(covid_Dec_2021)) 
+
+covid_chains %>%
+  summarize(quantile(covid_Dec_2021, 0.5, na.rm = TRUE))
+
+covid19_month_test <- covid19_filter %>%
+  dplyr::mutate(year = lubridate::year(date), 
+                month = lubridate::month(date), 
+                day = lubridate::day(date)) %>%
+  dplyr::group_by(state, year, month) %>%
+  dplyr::summarize(cases = sum(case_new)) 
+
+covid19_month_test %>% 
+  filter(state == "Alaska", year == 2021, month == 12) %>%
+  summarise(cases_daily = cases / 11)
+```
+
+Here, we used our model to predict the average daily increase in COVID-19 in Alaska in December, 2021 and observe that its posterior median is  larger than the real life average, but we believe it makes more practical sense. Recall what we learned in our model, the number of COVID-19 cases always grows at its peak in winter. At the start of the winter, it is fair to say the second half of December has more COVID-19 cases than the first half, so that the average of December is higher than that of the first half of December. Thus, we decide to use this model to continue our prediction, not only for Alaska in 2022, but also for the entire United States.
+
+### Posterior Prediction 1: December 2021
+
+Again, similarly, we first check the credible interval of our prediction above for December 2021, and notice that it doesn't include 0 and is valid.
+
+```{r}
+covid_chains_3 %>%
+  summarize(quantile(covid_Dec_2021, 0.025, na.rm = TRUE), quantile(covid_Dec_2021, 0.975, na.rm = TRUE))
+```
+
+### Posterior Prediction 2: 2022
+
+As shown by the line chart here, we observe a similar pattern with the one we had in our first model, but with a smaller deviation. Thus, this is another piece of evidence for us to say this model might make more statistical sense. To explore more about our data and prediction, see Chapter 7 for more information.
+
+```{r message=FALSE, warning=FALSE}
+covid_chains_3 <- covid_chains_3 %>%
+  mutate(covid_Jan_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Dec_2021) * lag1_log + covid_case("Alaska", 2021, 10) * lag3_log + covid_case("Alaska", 2021, 7) * lag6_log + stateAlaska + seasonwinter + vaccine + variant), size = reciprocal_dispersion)) %>%
+  mutate(covid_Feb_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Jan_2022) * lag1_log + covid_case("Alaska", 2021, 11) * lag3_log + covid_case("Alaska", 2021, 8) * lag6_log + stateAlaska + seasonwinter + vaccine + variant), size = reciprocal_dispersion)) %>%
+  mutate(covid_Mar_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Feb_2022) * lag1_log + log(covid_Dec_2021) * lag3_log + covid_case("Alaska", 2021, 9) * lag6_log + stateAlaska + seasonspring + vaccine + variant), size = reciprocal_dispersion)) %>%
+  mutate(covid_Apr_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Mar_2022) * lag1_log + log(covid_Jan_2022) * lag3_log + covid_case("Alaska", 2021, 10) * lag6_log + stateAlaska + seasonspring + vaccine + variant), size = reciprocal_dispersion)) %>%
+  mutate(covid_May_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Apr_2022) * lag1_log + log(covid_Feb_2022) * lag3_log + log(covid_Dec_2021) * lag6_log + stateAlaska + seasonspring + vaccine + variant), size = reciprocal_dispersion)) %>%
+  mutate(covid_Jun_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_May_2022) * lag1_log + log(covid_Mar_2022) * lag3_log + log(covid_Jan_2022) * lag6_log + stateAlaska + seasonsummer + vaccine + variant), size = reciprocal_dispersion)) %>%
+  mutate(covid_Jul_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Jun_2022) * lag1_log + log(covid_Apr_2022) * lag3_log + log(covid_Feb_2022) * lag6_log + stateAlaska + seasonsummer + vaccine + variant), size = reciprocal_dispersion))  %>%
+  mutate(covid_Aug_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Jul_2022) * lag1_log + log(covid_May_2022) * lag3_log + log(covid_Mar_2022) * lag6_log + stateAlaska + seasonsummer + vaccine + variant), size = reciprocal_dispersion))  %>%
+  mutate(covid_Sep_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Aug_2022) * lag1_log + log(covid_Jun_2022) * lag3_log + log(covid_Apr_2022) * lag6_log + stateAlaska + vaccine + variant), size = reciprocal_dispersion)) %>%
+  mutate(covid_Oct_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Sep_2022) * lag1_log + log(covid_Jul_2022) * lag3_log + log(covid_May_2022) * lag6_log + stateAlaska + vaccine + variant), size = reciprocal_dispersion))  %>%
+  mutate(covid_Nov_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Oct_2022) * lag1_log + log(covid_Aug_2022) * lag3_log + log(covid_Jun_2022) * lag6_log + stateAlaska + vaccine + variant), size = reciprocal_dispersion))  %>%
+  mutate(covid_Dec_2022 = rnbinom(20000, mu = exp(`(Intercept)` + log(covid_Nov_2022) * lag1_log + log(covid_Sep_2022) * lag3_log + log(covid_Jul_2022) * lag6_log + stateAlaska + seasonwinter + vaccine + variant), size = reciprocal_dispersion)) %>%
+  mutate(X = 1:20000) %>%
+  filter(!is.na(covid_Dec_2022))
+```
+
+```{r}
+covid_prediction_3 <- covid_chains_3 %>%
+  select(X, covid_Dec_2021, covid_Jan_2022, covid_Feb_2022, covid_Mar_2022, covid_Apr_2022, covid_May_2022, covid_Jun_2022, covid_Jul_2022, covid_Aug_2022, covid_Sep_2022, covid_Oct_2022, covid_Nov_2022, covid_Dec_2022)
+```
+
+```{r}
+test_pivot_3 <- covid_prediction_3 %>%
+  pivot_longer(c(covid_Dec_2021, covid_Jan_2022, covid_Feb_2022, covid_Mar_2022, covid_Apr_2022, covid_May_2022, covid_Jun_2022, covid_Jul_2022, covid_Aug_2022, covid_Sep_2022, covid_Oct_2022, covid_Nov_2022, covid_Dec_2022), names_to = "date", values_to = "prediction_cases_daily")
+
+test_pivot_3 <- test_pivot_3 %>%
+  mutate(year = ifelse(date == "covid_Dec_2021", 2021, 2022)) %>%
+  mutate(month = ifelse(date == "covid_Dec_2021" | date == "covid_Dec_2022", 12, ifelse(date == "covid_Jan_2022", 1, ifelse(date == "covid_Feb_2022", 2, ifelse(date == "covid_Mar_2022", 3, ifelse(date == "covid_Apr_2022", 4, ifelse(date == "covid_May_2022", 5, ifelse(date == "covid_Jun_2022", 6, ifelse(date == "covid_Jul_2022", 7, ifelse(date == "covid_Aug_2022", 8, ifelse(date == "covid_Sep_2022", 9, ifelse(date == "covid_Oct_2022", 10, 11))))))))))))
+  
+test_pivot_3$Date <- as.yearmon(paste(test_pivot_3$year, test_pivot_3$month), "%Y %m")
+
+test_pivot_3 <- test_pivot_3 %>%
+  mutate(base = (covid19_month %>% 
+          filter(state == "Alaska") %>%
+          filter(year == 2021 & month == 11))$cases_daily)
+
+test_pivot2_3 <- test_pivot_3 %>% 
+  filter(year == 2021 & month == 12 & X < 100) %>%
+  select(X, Date, prediction_cases_daily, base) %>%
+  pivot_longer(c(prediction_cases_daily, base), names_to = "date", values_to = "case") %>%
+  mutate(Date = ifelse(case == 434, (covid19_month %>% 
+          filter(state == "Alaska") %>%
+          filter(year == 2021 & month == 11))$Date, Date))
+
+ggplot() +
+  geom_line(data = test_pivot2_3, aes(x = Date, y = case, group = X), alpha = 0.2) +
+  geom_line(data = test_pivot_3 %>% filter(X < 100), aes(x = Date, y = prediction_cases_daily, group = X), alpha = 0.2) +
+  geom_line(data = covid19_month %>% 
+          filter(state == "Alaska"), aes(x = Date, y = cases_daily))
+```
+
+
+
